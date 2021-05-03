@@ -12,6 +12,7 @@ RUN apt-get install -y bazel
 COPY .git /cloudlock/.git
 
 WORKDIR /cloudlock
+RUN git checkout .
 RUN bazel build :all :CloudLock_deploy.jar
 
 FROM sigp/lighthouse:latest AS run

@@ -1,6 +1,4 @@
 package(default_visibility = ["//visibility:public"])
-load("@io_bazel_rules_docker//java:image.bzl", "java_image")
-
 
 java_library(
   name = "cloudlocklib",
@@ -17,16 +15,6 @@ java_library(
 
 java_binary(
   name = "CloudLock",
-  main_class = "duckutil.cloudlock.CloudLock",
-  runtime_deps = [
-    ":cloudlocklib",
-  ],
-)
-
-java_image(
-  name = "cloudlock",
-  # Put these runfiles into their own layer.
-  #layers = [":cloudlocklib"],
   main_class = "duckutil.cloudlock.CloudLock",
   runtime_deps = [
     ":cloudlocklib",
