@@ -15,35 +15,75 @@ import java.util.UUID;
 import java.util.TreeMap;
 import java.util.Map;
 import java.text.DecimalFormat;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class CloudLock
 {
-  // These things will come from config
-  public static final long restart_gap = 25L * 60L * 1000L; // 25 minutes
-  public static final long lock_expiration = 30L * 60L * 1000; // 30 min
-  //public static final long lock_expiration = 60L * 1000; // 1 minute
-  public static final long renew_time = 300L * 1000L; // 5 min
-  //public static final long renew_time = 10L * 1000L; // 10 sec
-  public static final String aws_key_id = "";
-  public static final String aws_secret = "";
-  public static final String dynamodb_table = "eth2-vc";
-  public static final String aws_region = "us-west-2";
-  public static final String lock_label = "testlock";
+  public static final long EXPIRE_SHUTDOWN_MS=60000L; // Shutdown 60-seconds before lock expire
 
+
+  // These things will come from config
+  public final long restart_gap;
+  public final long lock_expiration;
+  public final long renew_time;
+  public final String aws_key_id;
+  public final String aws_secret;
+  public final String dynamodb_table;
+  public final String aws_region;
+  public final String lock_label;
+
+  private final String my_id;
+  private final String[] cmd_array;
 
 
   public static void main(String args[]) throws Exception
   {
-    new CloudLock();
+    
+    new CloudLock(args);
 
   }
 
   private volatile LockInfo lock_info = null;
 
-  public CloudLock()
+  public CloudLock(String[] cmd_array)
   {
+    this.cmd_array = cmd_array;
+    restart_gap = getTimeWithDefault("restart_gap_min", 25);
+    lock_expiration = getTimeWithDefault("lock_expiration_min", 30);
+    renew_time = getTimeWithDefault("renew_time_min", 5);
+    aws_key_id = getRequired("aws_key_id");
+    aws_secret = getRequired("aws_secret");
+    dynamodb_table = getRequired("dynamodb_table");
+    aws_region = getRequired("aws_region");
+    lock_label = getRequired("lock_label");
+    my_id = getRequired("my_id");
+
+
     new LockRenewThread().start();
     new LockCheckThread().start();
+  }
+
+  public long getTimeWithDefault(String label, int default_min)
+  {
+    String k = "cloudlock_" + label;
+    if (System.getenv().containsKey(k))
+    {
+      int min = Integer.parseInt(System.getenv().get(k));
+      return 1000L * 60L * min;
+    }
+    return 1000L * 60L * default_min;
+
+  }
+  public String getRequired(String label)
+  {
+    String k = "cloudlock_" + label;
+    if (!System.getenv().containsKey(k))
+    {
+      throw new RuntimeException("Missing required environment variable: " + k);
+    }
+    return System.getenv().get(k);
+
   }
 
 
@@ -53,7 +93,6 @@ public class CloudLock
   public class LockRenewThread extends PeriodicThread
   {
     private AmazonDynamoDB dynamo;
-    private final String my_id;
 
     public LockRenewThread()
     {
@@ -68,10 +107,6 @@ public class CloudLock
         .withRegion(aws_region)
         .build();
 
-      //my_id = UUID.randomUUID().toString();
-      my_id = "duck";
-
-
     }
 
     public void runPass()
@@ -79,7 +114,6 @@ public class CloudLock
       GetItemResult curr_item = dynamo.getItem(dynamodb_table, ImmutableMap.of("label", new AttributeValue("lock_label")) , true);
 
       System.out.println("Existing lock: " + curr_item);
-      System.out.println("My id: " + my_id);
 
       long new_expire_time = lock_expiration + System.currentTimeMillis();
       long new_start_time = System.currentTimeMillis();
@@ -131,6 +165,7 @@ public class CloudLock
           else
           { // Not expired
             System.out.println(other + " has lock: " + new LockInfo(tm, old_start_time));
+            lock_info = null;
             return;
           }
 
@@ -142,7 +177,7 @@ public class CloudLock
 
       dynamo.putItem(pir);
       lock_info = new LockInfo(new_expire_time, effective_start_time);
-      System.out.println("New lock: " + lock_info);
+      System.out.println("Current lock: " + lock_info);
 
     }
   }
@@ -152,18 +187,85 @@ public class CloudLock
    */
   public class LockCheckThread extends PeriodicThread
   {
+    boolean running=false;
+    Process proc = null;
+
     public LockCheckThread()
     {
-      super(20000L);
+      super(5000L);
       setName("LockCheckThread");
       // Intentionally not making this a daemon thread, if this dies we want to exit
-
-
     }
 
     public void runPass()
+      throws Exception
     {
+      if (shouldRun())
+      {
+        if (running)
+        {
+          if (!proc.isAlive())
+          {
+            System.out.println("Process exited");
+            System.exit(proc.exitValue());
+          }
 
+        }
+        else
+        {
+          startProcess();
+        }
+      }
+      else
+      {
+        if (running)
+        {
+          if (!proc.isAlive())
+          {
+            running=false;
+            proc=null;
+          }
+          else
+          {
+            LockInfo li=lock_info;
+            if ((li==null) || (lock_info.isExpired()))
+            {
+              System.out.println("force killing");
+              proc.destroyForcibly();
+            }
+            else
+            {
+              System.out.println("stopping");
+              proc.destroy();
+            }
+          }
+
+        }
+
+
+      }
+
+    }
+    public void startProcess()
+      throws Exception
+    {
+      System.out.println("Starting process");
+      proc = Runtime.getRuntime().exec(cmd_array);
+      new CopyThread(proc.getInputStream(), System.out).start();
+      new CopyThread(proc.getErrorStream(), System.err).start();
+
+      running=true;
+    }
+
+    public boolean shouldRun()
+    {
+      LockInfo li = lock_info;
+      if (li == null) return false;
+      if (li.expiring()) return false;
+      if (li.isExpired()) return false;
+      if (li.afterStartWait()) return true;
+
+      return false;
     }
   }
 
@@ -184,7 +286,19 @@ public class CloudLock
       long start_delta = System.currentTimeMillis() - start_time;
       return String.format("Lock{expires in %s, started %s ago}", 
         timeToString(expire_delta), timeToString(start_delta));
+    }
 
+    public boolean isExpired()
+    {
+      return (System.currentTimeMillis() >= expiration);
+    }
+    public boolean expiring()
+    {
+      return (System.currentTimeMillis() + EXPIRE_SHUTDOWN_MS >= expiration);
+    }
+    public boolean afterStartWait()
+    {
+      return (start_time + restart_gap < System.currentTimeMillis());
 
     }
   }
@@ -218,5 +332,44 @@ public class CloudLock
 
   }
 
-  
+  public class CopyThread extends Thread
+  {
+    final InputStream src;
+    final OutputStream sink;
+
+    public CopyThread(InputStream src, OutputStream sink)
+    {
+      this.src = src;
+      this.sink = sink;
+    }
+
+    @Override
+    public void run()
+    {
+      byte[] buff=new byte[8192];
+      try
+      {
+      while(true)
+      {
+        int r = src.read(buff);
+        if (r > 0)
+        {
+          sink.write(buff,0,r);
+          sink.flush();
+        }
+        if (r < 0) return;
+      }
+      }
+      catch(java.io.IOException e)
+      {
+        e.printStackTrace();
+        System.exit(-1);
+      }
+
+    }
+
+
+  }
+
+
 }

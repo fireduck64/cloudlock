@@ -20,3 +20,7 @@ FROM sigp/lighthouse:latest AS run
 RUN apt-get update
 RUN mkdir -p /usr/share/man/man1
 RUN apt-get install -y --no-install-recommends default-jre-headless
+COPY --from=build /cloudlock/bazel-bin/CloudLock_deploy.jar /cloudlock/
+COPY script/cloudlock /usr/local/bin
+
+
