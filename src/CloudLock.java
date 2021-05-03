@@ -50,6 +50,7 @@ public class CloudLock
   private volatile LockInfo lock_info = null;
 
   public CloudLock(String[] cmd_array)
+    throws Exception
   {
     this.cmd_array = cmd_array;
     restart_gap = getTimeWithDefault("restart_gap_min", 25);
@@ -65,6 +66,11 @@ public class CloudLock
 
     new LockRenewThread().start();
     new LockCheckThread().start();
+
+    while(true)
+    {
+      Thread.sleep(5000);
+    }
   }
 
   public long getTimeWithDefault(String label, int default_min)
@@ -197,6 +203,7 @@ public class CloudLock
     {
       super(5000L);
       setName("LockCheckThread");
+      setDaemon(true);
       // Intentionally not making this a daemon thread, if this dies we want to exit
     }
 
