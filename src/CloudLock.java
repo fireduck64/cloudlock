@@ -17,11 +17,14 @@ import java.util.Map;
 import java.text.DecimalFormat;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 
 public class CloudLock
 {
   public static final long EXPIRE_SHUTDOWN_MS=60000L; // Shutdown 60-seconds before lock expire
-
+  private static final Logger logger = Logger.getLogger("cloudlock");
 
   // These things will come from config
   public final long restart_gap;
@@ -111,16 +114,16 @@ public class CloudLock
 
     public void runPass()
     {
-      GetItemResult curr_item = dynamo.getItem(dynamodb_table, ImmutableMap.of("label", new AttributeValue("lock_label")) , true);
+      GetItemResult curr_item = dynamo.getItem(dynamodb_table, ImmutableMap.of("label", new AttributeValue(lock_label)) , true);
 
-      System.out.println("Existing lock: " + curr_item);
+      logger.info("Existing lock: " + curr_item);
 
       long new_expire_time = lock_expiration + System.currentTimeMillis();
       long new_start_time = System.currentTimeMillis();
       long effective_start_time = -1;
 
       Map<String, AttributeValue> put_map = new TreeMap<>();
-      put_map.put("label", new AttributeValue("lock_label"));
+      put_map.put("label", new AttributeValue(lock_label));
       put_map.put("holder", new AttributeValue(my_id));
       put_map.put("expire_time", new AttributeValue().withN("" + new_expire_time));
       put_map.put("version", new AttributeValue(UUID.randomUUID().toString()));
@@ -159,12 +162,12 @@ public class CloudLock
           if (tm < System.currentTimeMillis())
           { // Expired
             pir.addItemEntry("start_time",new AttributeValue().withN(""+new_start_time));
-            System.out.println("Attempting to take over lock from " + other);
+            logger.info("Attempting to take over lock from " + other);
             effective_start_time = new_start_time;
           }
           else
           { // Not expired
-            System.out.println(other + " has lock: " + new LockInfo(tm, old_start_time));
+            logger.info(other + " has lock: " + new LockInfo(tm, old_start_time));
             lock_info = null;
             return;
           }
@@ -177,7 +180,7 @@ public class CloudLock
 
       dynamo.putItem(pir);
       lock_info = new LockInfo(new_expire_time, effective_start_time);
-      System.out.println("Current lock: " + lock_info);
+      logger.info("Current lock: " + lock_info);
 
     }
   }
@@ -206,7 +209,7 @@ public class CloudLock
         {
           if (!proc.isAlive())
           {
-            System.out.println("Process exited");
+            logger.info("Process exited");
             System.exit(proc.exitValue());
           }
 
@@ -230,12 +233,12 @@ public class CloudLock
             LockInfo li=lock_info;
             if ((li==null) || (lock_info.isExpired()))
             {
-              System.out.println("force killing");
+              logger.warning("force killing");
               proc.destroyForcibly();
             }
             else
             {
-              System.out.println("stopping");
+              logger.warning("stopping");
               proc.destroy();
             }
           }
@@ -249,7 +252,7 @@ public class CloudLock
     public void startProcess()
       throws Exception
     {
-      System.out.println("Starting process");
+      logger.warning("Starting process");
       proc = Runtime.getRuntime().exec(cmd_array);
       new CopyThread(proc.getInputStream(), System.out).start();
       new CopyThread(proc.getErrorStream(), System.err).start();
