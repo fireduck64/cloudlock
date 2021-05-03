@@ -19,11 +19,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import duckutil.NetUtil;
 
 
 public class CloudLock
 {
   public static final long EXPIRE_SHUTDOWN_MS=60000L; // Shutdown 60-seconds before lock expire
+	public static final long CLOCK_SKEW_WARN_MS=20000L;
+  public static final long CLOCK_SKEW_FAIL_MS=40000L;
+
+
+
   private static final Logger logger = Logger.getLogger("cloudlock");
 
   // These things will come from config
@@ -118,11 +124,19 @@ public class CloudLock
 
     }
 
+    @Override
     public void runPass()
+      throws Exception
     {
       GetItemResult curr_item = dynamo.getItem(dynamodb_table, ImmutableMap.of("label", new AttributeValue(lock_label)) , true);
 
       logger.info("Existing lock: " + curr_item);
+
+      if (!checkTime())
+      {
+        lock_info = null;
+        return;
+      }
 
       long new_expire_time = lock_expiration + System.currentTimeMillis();
       long new_start_time = System.currentTimeMillis();
@@ -380,6 +394,33 @@ public class CloudLock
 
 
   }
+
+
+  private boolean checkTime()
+    throws Exception
+  {
+    long start = System.currentTimeMillis();
+
+    long server = Long.parseLong(NetUtil.getUrlLine("https://timecheck.snowblossom.org/time"));
+
+    long end = System.currentTimeMillis();
+
+    long mid = (end + start) /2;
+
+    long diff = Math.abs(server - mid);
+		
+    if (diff > CLOCK_SKEW_WARN_MS)
+    {
+      logger.log(Level.WARNING, String.format("Local clock seems to be off by %d ms", diff));
+    }
+    if (diff > CLOCK_SKEW_FAIL_MS)
+    {
+      return false;
+    }
+    return true;
+
+  }
+
 
 
 }
