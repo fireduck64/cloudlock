@@ -28,8 +28,6 @@ public class CloudLock
 	public static final long CLOCK_SKEW_WARN_MS=20000L;
   public static final long CLOCK_SKEW_FAIL_MS=40000L;
 
-
-
   private static final Logger logger = Logger.getLogger("cloudlock");
 
   // These things will come from config
@@ -59,7 +57,7 @@ public class CloudLock
     throws Exception
   {
     this.cmd_array = cmd_array;
-    restart_gap = getTimeWithDefault("restart_gap_min", 25);
+    restart_gap = getTimeWithDefault("restart_gap_min", 30);
     lock_expiration = getTimeWithDefault("lock_expiration_min", 30);
     renew_time = getTimeWithDefault("renew_time_min", 5);
     aws_key_id = getRequired("aws_key_id");
@@ -181,6 +179,7 @@ public class CloudLock
 
           if (tm < System.currentTimeMillis())
           { // Expired
+            // if lock is not owned by me, and is expired, delete it
             pir.addItemEntry("start_time",new AttributeValue().withN(""+new_start_time));
             logger.info("Attempting to take over lock from " + other);
             effective_start_time = new_start_time;
@@ -194,13 +193,21 @@ public class CloudLock
 
         }
 
-        // if lock is not owned by me, and is expired, delete it
       }
+      
       
 
       dynamo.putItem(pir);
       lock_info = new LockInfo(new_expire_time, effective_start_time);
       logger.info("Current lock: " + lock_info);
+      if (!lock_info.afterStartWait())
+      {
+        long run_time = lock_info.start_time + restart_gap;
+        long delta = run_time - System.currentTimeMillis();
+
+        logger.info("  In start gap, will start process in " + timeToString(delta));
+        
+      }
 
     }
   }
@@ -210,7 +217,7 @@ public class CloudLock
    */
   public class LockCheckThread extends PeriodicThread
   {
-    boolean running=false;
+    boolean running = false;
     Process proc = null;
 
     public LockCheckThread()
@@ -323,8 +330,8 @@ public class CloudLock
     public boolean afterStartWait()
     {
       return (start_time + restart_gap < System.currentTimeMillis());
-
     }
+
   }
 
   public static String timeToString(long ms)
