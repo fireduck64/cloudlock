@@ -73,7 +73,7 @@ Shown here with defaults
 ```
 export cloudlock_restart_gap_min=30
 export cloudlock_lock_expiration_min=30
-export cloudlock_renew_time_min=5
+export cloudlock_renew_time_min=2
 ```
 
 ### Operation

@@ -59,7 +59,7 @@ public class CloudLock
     this.cmd_array = cmd_array;
     restart_gap = getTimeWithDefault("restart_gap_min", 30);
     lock_expiration = getTimeWithDefault("lock_expiration_min", 30);
-    renew_time = getTimeWithDefault("renew_time_min", 5);
+    renew_time = getTimeWithDefault("renew_time_min", 2);
     aws_key_id = getRequired("aws_key_id");
     aws_secret = getRequired("aws_secret");
     dynamodb_table = getRequired("dynamodb_table");
