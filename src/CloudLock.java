@@ -346,7 +346,7 @@ public class CloudLock
     long min = t % 60;
     t = t / 60;
     long hour = t % 24;
-    t = t / 25;
+    t = t / 24;
     long day = t;
 
     DecimalFormat df=new DecimalFormat("00");
