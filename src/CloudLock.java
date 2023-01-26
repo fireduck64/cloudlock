@@ -347,12 +347,15 @@ public class CloudLock
     t = t / 60;
     long hour = t % 24;
     t = t / 24;
-    long day = t;
+    long day = t % 365; //no exact, forking leap years
+    t = t / 365;
+    long year = t;
 
     DecimalFormat df=new DecimalFormat("00");
 
     StringBuilder sb = new StringBuilder();
     boolean print=false;
+    if (print || (year != 0)) { sb.append(df.format(year) + "y"); print=true;}
     if (print || (day != 0)) { sb.append(df.format(day) + "d"); print=true;}
     if (print || (hour != 0)) { sb.append(df.format(hour) + "h"); print=true;}
     if (print || (min != 0)) { sb.append(df.format(min) + "m"); print=true;}
